@@ -36,7 +36,7 @@ impl FrequencySensorParams {
             diff_filter: FilterParams::new(16., 1.),
             diff_feedback: FilterParams::new(100., -0.05),
             gain_control: GainControllerParams {
-                pre_gain: (1 << 16) as f64,
+                pre_gain: 1.0,
                 ki: 0.1,
                 kp: 0.1,
                 kd: 0.1,
@@ -70,6 +70,8 @@ pub struct Features {
     size: usize,
     length: usize,
     index: usize,
+
+    frame_count: usize,
 }
 
 impl Features {
@@ -82,12 +84,13 @@ impl Features {
             diff: vec![0f64; size],
             energy: vec![0f64; size],
             index: 0,
+            frame_count: 0,
         }
     }
 
     fn increment_index(&mut self) {
-        self.index += 1;
-        self.index %= self.length;
+        self.frame_count += 1;
+        self.index = self.frame_count % self.length;
     }
 
     fn current_index(&self, i: usize) -> usize {
@@ -118,6 +121,10 @@ impl Features {
     pub fn get_energy(&self) -> &Vec<f64> {
         &self.energy
     }
+
+    pub fn get_frame_count(&self) -> usize {
+        self.frame_count
+    }
 }
 
 /// FrequencySensor maintains a `Features` vector that tracks incoming frames.
@@ -136,8 +143,6 @@ pub struct FrequencySensor {
 
     scale_buffer: Vec<f64>,
     diff_buffer: Vec<f64>,
-
-    frame_count: usize,
 }
 
 impl FrequencySensor {
@@ -154,7 +159,6 @@ impl FrequencySensor {
             scale_filter: BiasedFilter::new(size, params.pos_scale_filter, params.neg_scale_filter),
             scale_buffer: vec![0f64; size],
             diff_buffer: vec![0f64; size],
-            frame_count: 0,
         }
     }
 
@@ -170,7 +174,7 @@ impl FrequencySensor {
 
     /// process updates the features vector
     pub fn process(&mut self, input: &mut Vec<f64>) {
-        self.frame_count += 1;
+        self.features.frame_count += 1;
         self.apply_preemphasis(input);
         self.apply_gain_control(input);
         self.apply_filters(input);
@@ -179,14 +183,14 @@ impl FrequencySensor {
         self.apply_value_scaling();
     }
 
-    pub fn debug<W>(&self, w: &mut W) -> core::fmt::Result
+    pub fn write_debug<W>(&self, w: &mut W) -> core::fmt::Result
     where
         W: Write,
     {
         let feat = self.get_features();
-        writeln!(w, "{{")?;
+        // writeln!(w, "{{")?;
 
-        writeln!(w, "\t\"frame_count\":   {},", self.frame_count)?;
+        writeln!(w, "\t\"frame_count\":   {},", feat.frame_count)?;
 
         self.gain_controller.get_state().write_debug(w)?;
 
@@ -218,9 +222,9 @@ impl FrequencySensor {
             w,
             "\t\"diff_feedback\": {}",
             VecFmt(self.diff_feedback.get_values())
-        )?;
+        )
 
-        writeln!(w, "}}")
+        // writeln!(w, "}}")
     }
 
     fn apply_preemphasis(&mut self, input: &mut Vec<f64>) {

@@ -14,6 +14,18 @@ pub struct Params {
     pub pre_gain: f64,
 }
 
+impl Params {
+    pub fn defaults() -> Self {
+        Self {
+            kd: 0.1,
+            kp: 0.1,
+            ki: 0.1,
+            pre_gain: 1.0,
+            filter_params: FilterParams::new(100., 1.),
+        }
+    }
+}
+
 /// GainController is a PID controller which adjusts gain with a target value of 1.
 pub struct GainController {
     filter: Filter,
@@ -91,5 +103,54 @@ impl State {
         writeln!(w, "\t\"gain\":          {},", VecFmt(&self.gain))?;
         writeln!(w, "\t\"gain_filter\":   {},", VecFmt(&self.filter_values))?;
         writeln!(w, "\t\"gain_err\":      {},", VecFmt(&self.err))
+    }
+}
+
+pub struct BoostController {
+    gc: GainController,
+}
+
+impl BoostController {
+    pub fn new(params: Params) -> Self {
+        Self {
+            gc: GainController::new(1, params),
+        }
+    }
+
+    pub fn process(&mut self, frame: &mut Vec<f64>) {
+        let s: f64 = frame.iter().map(|x: &f64| x * x).sum();
+        let rms = (s / frame.len() as f64).sqrt();
+        let mut p = vec![rms];
+        self.gc.process(&mut p);
+        let scale = self.gc.get_values()[0];
+        for i in 0..frame.len() {
+            frame[i] *= scale;
+        }
+    }
+
+    pub fn get_state(&self) -> BoostState {
+        let s = self.gc.get_state();
+        BoostState {
+            gain: s.gain[0],
+            filter_value: s.filter_values[0],
+            err: s.err[0],
+        }
+    }
+}
+
+pub struct BoostState {
+    pub gain: f64,
+    pub filter_value: f64,
+    pub err: f64,
+}
+
+impl BoostState {
+    pub fn write_debug<W>(&self, w: &mut W) -> core::fmt::Result
+    where
+        W: Write,
+    {
+        writeln!(w, "\t\"boost\":          {},", self.gain)?;
+        writeln!(w, "\t\"boost_filter\":   {},", self.filter_value)?;
+        writeln!(w, "\t\"boost_err\":      {},", self.err)
     }
 }
