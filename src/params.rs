@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct FilterParams {
     pub a: f32,
     pub b: f32,
@@ -36,6 +36,39 @@ impl FilterParams {
 
     pub fn get_coefficients(&self) -> Vec<f32> {
         vec![self.tau, self.gain]
+    }
+}
+
+impl Serialize for FilterParams {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(Serialize)]
+        struct Params {
+            tau: f32,
+            gain: f32,
+        }
+        let p = Params {
+            tau: self.tau,
+            gain: self.gain,
+        };
+        p.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for FilterParams {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Params {
+            tau: f32,
+            gain: f32,
+        };
+        let p = Params::deserialize(deserializer)?;
+        Ok(Self::new(p.tau, p.gain))
     }
 }
 
