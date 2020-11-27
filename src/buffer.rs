@@ -1,7 +1,7 @@
 /// WindowBuffer implements a sliding circular buffer with a given capacity. Pushing to the buffer
 /// increments the current index. Get returns the N most recently pushed elements.
 pub struct WindowBuffer {
-    buffer: Vec<f32>,
+    buffer: Vec<f64>,
     index: usize,
     capacity: usize,
 }
@@ -9,13 +9,13 @@ pub struct WindowBuffer {
 impl WindowBuffer {
     pub fn new(capacity: usize) -> WindowBuffer {
         WindowBuffer {
-            buffer: vec![0f32; capacity],
+            buffer: vec![0f64; capacity],
             index: 0,
             capacity,
         }
     }
 
-    pub fn push(&mut self, x: &Vec<f32>) {
+    pub fn push(&mut self, x: &Vec<f64>) {
         if x.len() > self.capacity {
             panic!("cannot push size greater than capacity");
         }
@@ -40,12 +40,12 @@ impl WindowBuffer {
         self.index = (self.index + x.len()) % self.capacity;
     }
 
-    pub fn get(&self, size: usize) -> Vec<f32> {
+    pub fn get(&self, size: usize) -> Vec<f64> {
         if size > self.capacity {
             panic!("cannot get size greater than capacity");
         }
 
-        let mut out = vec![0f32; size];
+        let mut out = vec![0f64; size];
 
         let s = self.index as i32 - size as i32;
         let (st, en, wrap) = if s < 0 {
@@ -76,7 +76,7 @@ mod tests {
     fn it_works() {
         let mut b = WindowBuffer::new(4);
 
-        let v = vec![0f32, 1., 2., 3.];
+        let v = vec![0f64, 1., 2., 3.];
         b.push(&v);
         assert_eq!(b.get(4), v);
 

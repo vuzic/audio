@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use std::f64::consts::PI;
 use std::sync::Arc;
 
 extern crate rustfft;
@@ -12,27 +12,27 @@ use super::buffer::WindowBuffer;
 /// It uses a blackman-harris windowing function.
 pub struct SlidingFFT {
     buffer: WindowBuffer,
-    window: Vec<f32>,
+    window: Vec<f64>,
 
     fft_size: usize,
-    norm: f32,
+    norm: f64,
 
-    fft: Arc<dyn FFT<f32>>,
+    fft: Arc<dyn FFT<f64>>,
 
-    complex: Vec<Complex<f32>>,
-    output: Vec<f32>,
+    complex: Vec<Complex<f64>>,
+    output: Vec<f64>,
 }
 
-fn blackman_harris(i: usize, n: usize) -> f32 {
+fn blackman_harris(i: usize, n: usize) -> f64 {
     let a0 = 0.35875;
     let a1 = 0.48829;
     let a2 = 0.14128;
     let a3 = 0.01168;
-    let f = (PI * i as f32) / (n as f32 - 1.);
+    let f = (PI * i as f64) / (n as f64 - 1.);
     a0 - a1 * f.cos() + a2 * (2. * f).cos() - a3 * (3. * f).cos()
 }
 
-fn log_magnitude(x: Complex<f32>) -> f32 {
+fn log_magnitude(x: Complex<f64>) -> f64 {
     (1. + x.re * x.re + x.im * x.im).ln() * 0.5
 }
 
@@ -46,29 +46,29 @@ impl SlidingFFT {
             .map(|i| blackman_harris(i, fft_size))
             .collect();
 
-        let complex = vec![Complex::from(0f32); fft_size];
-        let output = vec![0f32; fft_size / 2];
+        let complex = vec![Complex::from(0f64); fft_size];
+        let output = vec![0f64; fft_size / 2];
 
         SlidingFFT {
             buffer,
             window,
             fft_size,
-            norm: 1. / (fft_size as f32),
+            norm: 1. / (fft_size as f64),
             complex,
             output,
             fft,
         }
     }
 
-    pub fn push_input(&mut self, frame: &Vec<f32>) -> () {
+    pub fn push_input(&mut self, frame: &Vec<f64>) -> () {
         self.buffer.push(frame);
     }
 
     /// process returns the log magnitude of the fft of the most recent fft_size data.
-    pub fn process(&mut self) -> &Vec<f32> {
+    pub fn process(&mut self) -> &Vec<f64> {
         let fft_frame = self.buffer.get(self.fft_size);
 
-        let mut input: Vec<Complex<f32>> = fft_frame
+        let mut input: Vec<Complex<f64>> = fft_frame
             .iter()
             .enumerate()
             .map(|(i, x)| x * self.window[i])
@@ -92,13 +92,13 @@ impl SlidingFFT {
 #[cfg(test)]
 mod tests {
     use super::SlidingFFT;
-    use std::f32::consts::PI;
+    use std::f64::consts::PI;
 
     #[test]
     fn it_works() {
         let mut sfft = SlidingFFT::new(16);
         let d = (0..16)
-            .map(|i| (i as f32 * 4. * PI / 16.).cos() + 1.)
+            .map(|i| (i as f64 * 4. * PI / 16.).cos() + 1.)
             .collect();
         sfft.push_input(&d);
         let out = sfft.process();

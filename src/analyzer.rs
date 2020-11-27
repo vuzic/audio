@@ -1,6 +1,5 @@
 use super::bucketer::Bucketer;
-use super::frequency_sensor::{Features, FrequencySensor};
-use super::params::FrequencySensorParams;
+use super::frequency_sensor::{Features, FrequencySensor, FrequencySensorParams};
 use super::sfft::SlidingFFT;
 
 pub struct Analyzer {
@@ -26,7 +25,7 @@ impl Analyzer {
         }
     }
 
-    pub fn process(&mut self, frame: &Vec<f32>) {
+    pub fn process(&mut self, frame: &Vec<f64>) {
         self.sfft.push_input(frame);
         let spectrum = self.sfft.process();
         let bins = self.bucketer.bucket(spectrum);
@@ -44,9 +43,10 @@ impl Analyzer {
 
 #[cfg(test)]
 mod tests {
-    use super::super::params::{FilterParams, GainControllerParams};
     use super::Analyzer;
     use super::FrequencySensorParams;
+    use crate::filter::FilterParams;
+    use crate::gain_control::Params as GainControllerParams;
 
     #[test]
     fn it_works() {
@@ -58,7 +58,8 @@ mod tests {
             gain_control: GainControllerParams {
                 kd: 0.001,
                 kp: 0.001,
-                pre_gain: (1 << 16) as f32,
+                ki: 0.001,
+                pre_gain: (1 << 16) as f64,
                 filter_params: FilterParams::new(100., 1.),
             },
             amp_offset: 1.,
@@ -72,9 +73,9 @@ mod tests {
         };
         let mut a = Analyzer::new(128, 16, 2, params);
 
-        use std::f32::consts::PI;
-        let input: Vec<f32> = (0..128)
-            .map(|x| (x as f32 * 2. * PI / 128.).cos())
+        use std::f64::consts::PI;
+        let input: Vec<f64> = (0..128)
+            .map(|x| (x as f64 * 2. * PI / 128.).cos())
             .collect();
 
         for _ in 0..128 {

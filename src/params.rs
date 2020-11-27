@@ -73,14 +73,6 @@ impl<'de> Deserialize<'de> for FilterParams {
 }
 
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
-pub struct GainControllerParams {
-    pub filter_params: FilterParams,
-    pub kp: f32,
-    pub ki: f32,
-    pub pre_gain: f32,
-}
-
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct FrequencySensorParams {
     pub preemphasis: f32,
     pub diff_gain: f32,
@@ -110,6 +102,7 @@ impl FrequencySensorParams {
                 pre_gain: (1 << 16) as f32,
                 ki: 0.1,
                 kp: 0.1,
+                kd: 0.1,
                 filter_params: FilterParams::new(1720., 1.),
             },
             amp_offset: 0.,

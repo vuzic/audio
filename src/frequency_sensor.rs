@@ -2,6 +2,57 @@
 // #![feature(stdsimd)]
 // // #![cfg(target_feature = "simd128")]
 // #![cfg(target_arch = "wasm32")]
+use core::fmt::Write;
+
+use serde::{Deserialize, Serialize};
+
+use crate::filter::*;
+use crate::gain_control::{GainController, Params as GainControllerParams};
+
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+pub struct FrequencySensorParams {
+    pub preemphasis: f64,
+    pub diff_gain: f64,
+    pub amp_scale: f64,
+    pub amp_offset: f64,
+    pub sync: f64,
+    pub drag: f64,
+
+    pub amp_filter: FilterParams,
+    pub amp_feedback: FilterParams,
+    pub diff_filter: FilterParams,
+    pub diff_feedback: FilterParams,
+    pub pos_scale_filter: FilterParams,
+    pub neg_scale_filter: FilterParams,
+
+    pub gain_control: GainControllerParams,
+}
+
+impl FrequencySensorParams {
+    pub fn defaults() -> FrequencySensorParams {
+        FrequencySensorParams {
+            amp_filter: FilterParams::new(8., 1.),
+            amp_feedback: FilterParams::new(200., -1.),
+            diff_filter: FilterParams::new(16., 1.),
+            diff_feedback: FilterParams::new(100., -0.05),
+            gain_control: GainControllerParams {
+                pre_gain: (1 << 16) as f64,
+                ki: 0.1,
+                kp: 0.1,
+                kd: 0.1,
+                filter_params: FilterParams::new(1720., 1.),
+            },
+            amp_offset: 0.,
+            preemphasis: 2.,
+            sync: 0.001,
+            amp_scale: 1.,
+            diff_gain: 1.,
+            drag: 0.001,
+            pos_scale_filter: FilterParams::new(100., 1.),
+            neg_scale_filter: FilterParams::new(1000., 1.),
+        }
+    }
+}
 
 /// Features contain the output of the frequency sensor module.
 /// `amplitudes` is the lowpass-filtered magnitude of each bucket over the time of [length] frames.
@@ -11,10 +62,10 @@
 /// `energy` is the accumulation of diff over time.
 #[derive(Clone, Debug)]
 pub struct Features {
-    amplitudes: Vec<Vec<f32>>,
-    scales: Vec<f32>,
-    diff: Vec<f32>,
-    energy: Vec<f32>,
+    amplitudes: Vec<Vec<f64>>,
+    scales: Vec<f64>,
+    diff: Vec<f64>,
+    energy: Vec<f64>,
 
     size: usize,
     length: usize,
@@ -26,10 +77,10 @@ impl Features {
         Self {
             size,
             length,
-            amplitudes: (0..length).map(|_| vec![0f32; size]).collect(),
-            scales: vec![0f32; size],
-            diff: vec![0f32; size],
-            energy: vec![0f32; size],
+            amplitudes: (0..length).map(|_| vec![0f64; size]).collect(),
+            scales: vec![0f64; size],
+            diff: vec![0f64; size],
+            energy: vec![0f64; size],
             index: 0,
         }
     }
@@ -47,143 +98,25 @@ impl Features {
         i as usize
     }
 
-    pub fn get_amplitudes(&self, i: usize) -> &Vec<f32> {
+    pub fn get_amplitudes(&self, i: usize) -> &Vec<f64> {
         &self.amplitudes[self.current_index(i)]
     }
 
-    fn get_amplitudes_mut(&mut self, i: usize) -> &mut Vec<f32> {
+    fn get_amplitudes_mut(&mut self, i: usize) -> &mut Vec<f64> {
         let i = self.current_index(i);
         &mut self.amplitudes[i]
     }
 
-    pub fn get_scales(&self) -> &Vec<f32> {
+    pub fn get_scales(&self) -> &Vec<f64> {
         &self.scales
     }
 
-    pub fn get_diff(&self) -> &Vec<f32> {
+    pub fn get_diff(&self) -> &Vec<f64> {
         &self.diff
     }
 
-    pub fn get_energy(&self) -> &Vec<f32> {
+    pub fn get_energy(&self) -> &Vec<f64> {
         &self.energy
-    }
-}
-
-use super::params::{FilterParams, FrequencySensorParams, GainControllerParams};
-
-/// Filter implements a bank of N single pole IIR filters that process a frame
-/// in parallel.
-struct Filter {
-    values: Vec<f32>,
-    params: FilterParams,
-}
-
-impl Filter {
-    fn new(size: usize, params: FilterParams) -> Filter {
-        Filter {
-            values: vec![0f32; size],
-            params,
-        }
-    }
-
-    // fn process_simd(&self, input: &Vec<f32>) {
-    //     unsafe {
-    //         let a: v128 = std::mem::transmute([self.params.a; 4]);
-    //         let b: v128 = std::mem::transmute([self.params.b; 4]);
-    //     }
-
-    //     let mut i = 0;
-    //     let len = input.len() as i32 - 4;
-    //     while i < len {
-    //         unsafe {
-    //             let v_in: v128 = std::mem::transmute(input[i..i + 4]);
-    //             let v_val: v128 = std::mem::transmute(self.values[i..i + 4]);
-    //             let v = f32x4_add(f32x4_mul(a, v_in), f32x4_mul(b, v_val));
-    //             self.values[i..i + 4] = std::mem::transmute(v);
-    //         }
-    //         i += 4;
-    //     }
-    // }
-
-    fn process(&mut self, input: &Vec<f32>) {
-        for i in 0..input.len() {
-            self.values[i] = self.params.a * input[i] + self.params.b * self.values[i];
-        }
-    }
-}
-
-/// BiasedFilter uses separate coefficients depending on whether the input is greater or
-/// less than the current value.
-struct BiasedFilter {
-    values: Vec<f32>,
-    pos_params: FilterParams,
-    neg_params: FilterParams,
-}
-
-impl BiasedFilter {
-    fn new(size: usize, pos_params: FilterParams, neg_params: FilterParams) -> BiasedFilter {
-        BiasedFilter {
-            values: vec![0f32; size],
-            pos_params,
-            neg_params,
-        }
-    }
-
-    fn process(&mut self, input: &Vec<f32>) {
-        for i in 0..input.len() {
-            let params = if input[i] < self.values[i] {
-                &self.pos_params
-            } else {
-                &self.neg_params
-            };
-            self.values[i] = params.a * input[i] + params.b * self.values[i];
-        }
-    }
-}
-
-/// GainController is a PD controller which adjusts gain with a target value of 1.
-struct GainController {
-    filter: Filter,
-    values: Vec<f32>,
-    err: Vec<f32>,
-    params: GainControllerParams,
-}
-
-impl GainController {
-    fn new(size: usize, params: GainControllerParams) -> GainController {
-        GainController {
-            filter: Filter::new(size, params.filter_params),
-            values: vec![1f32; size],
-            err: vec![0f32; size],
-            params,
-        }
-    }
-
-    fn log_error(x: f32) -> f32 {
-        let x = 0.000000001f32 + x;
-        let l = x.abs().log2();
-        -x.signum() * l * l * l.signum()
-    }
-
-    fn process(&mut self, input: &mut Vec<f32>) {
-        for i in 0..input.len() {
-            input[i] *= self.values[i] * self.params.pre_gain;
-        }
-
-        self.filter.process(input);
-
-        for i in 0..input.len() {
-            let e = GainController::log_error(self.filter.values[i]);
-            // integrate error
-            self.err[i] = 0.99 * self.err[i] + 0.01 * e;
-
-            let u = self.params.kp * e + self.params.ki * self.err[i];
-            self.values[i] = match self.values[i] + u {
-                x if x > 1e8 => 1e8,
-                x if x < 1e-6 => 1e-6,
-                x => x,
-            };
-        }
     }
 }
 
@@ -201,8 +134,10 @@ pub struct FrequencySensor {
 
     size: usize,
 
-    scale_buffer: Vec<f32>,
-    diff_buffer: Vec<f32>,
+    scale_buffer: Vec<f64>,
+    diff_buffer: Vec<f64>,
+
+    frame_count: usize,
 }
 
 impl FrequencySensor {
@@ -217,8 +152,9 @@ impl FrequencySensor {
             diff_filter: Filter::new(size, params.diff_filter),
             diff_feedback: Filter::new(size, params.diff_feedback),
             scale_filter: BiasedFilter::new(size, params.pos_scale_filter, params.neg_scale_filter),
-            scale_buffer: vec![0f32; size],
-            diff_buffer: vec![0f32; size],
+            scale_buffer: vec![0f64; size],
+            diff_buffer: vec![0f64; size],
+            frame_count: 0,
         }
     }
 
@@ -233,7 +169,8 @@ impl FrequencySensor {
     }
 
     /// process updates the features vector
-    pub fn process(&mut self, input: &mut Vec<f32>) {
+    pub fn process(&mut self, input: &mut Vec<f64>) {
+        self.frame_count += 1;
         self.apply_preemphasis(input);
         self.apply_gain_control(input);
         self.apply_filters(input);
@@ -242,57 +179,70 @@ impl FrequencySensor {
         self.apply_value_scaling();
     }
 
-    pub fn print_debug(&self) {
+    pub fn debug<W>(&self, w: &mut W) -> core::fmt::Result
+    where
+        W: Write,
+    {
         let feat = self.get_features();
-        println!("{{");
+        writeln!(w, "{{")?;
 
-        println!("\t\"amplitudes\":    {},", VecF32(feat.get_amplitudes(0)));
-        println!("\t\"energy\":        {},", VecF32(feat.get_energy()));
-        println!("\t\"diff\":          {},", VecF32(feat.get_diff()));
-        println!("\t\"scales\":        {},", VecF32(feat.get_scales()));
+        writeln!(w, "\t\"frame_count\":   {},", self.frame_count)?;
 
-        println!(
-            "\t\"gain\":          {},",
-            VecF32(&self.gain_controller.values)
-        );
-        println!(
-            "\t\"gain_err\":      {},",
-            VecF32(&self.gain_controller.err)
-        );
+        self.gain_controller.get_state().write_debug(w)?;
 
-        println!("\t\"amp_filter\":    {},", VecF32(&self.amp_filter.values));
-        println!(
+        writeln!(
+            w,
+            "\t\"amplitudes\":    {},",
+            VecFmt(feat.get_amplitudes(0))
+        )?;
+        writeln!(w, "\t\"energy\":        {},", VecFmt(feat.get_energy()))?;
+        writeln!(w, "\t\"diff\":          {},", VecFmt(feat.get_diff()))?;
+        writeln!(w, "\t\"scales\":        {},", VecFmt(feat.get_scales()))?;
+
+        writeln!(
+            w,
+            "\t\"amp_filter\":    {},",
+            VecFmt(self.amp_filter.get_values())
+        )?;
+        writeln!(
+            w,
             "\t\"amp_feedback\":  {},",
-            VecF32(&self.amp_feedback.values)
-        );
-        println!("\t\"diff_filter\":   {},", VecF32(&self.diff_filter.values));
-        println!(
+            VecFmt(self.amp_feedback.get_values())
+        )?;
+        writeln!(
+            w,
+            "\t\"diff_filter\":   {},",
+            VecFmt(self.diff_filter.get_values())
+        )?;
+        writeln!(
+            w,
             "\t\"diff_feedback\": {}",
-            VecF32(&self.diff_feedback.values)
-        );
+            VecFmt(self.diff_feedback.get_values())
+        )?;
 
-        println!("}}");
+        writeln!(w, "}}")
     }
 
-    fn apply_preemphasis(&mut self, input: &mut Vec<f32>) {
-        let incr = (self.params.preemphasis - 1.) / self.size as f32;
+    fn apply_preemphasis(&mut self, input: &mut Vec<f64>) {
+        let incr = (self.params.preemphasis - 1.) / self.size as f64;
         for i in 0..self.size {
-            input[i] *= 1. + i as f32 * incr;
+            input[i] *= 1. + i as f64 * incr;
         }
     }
 
-    fn apply_gain_control(&mut self, input: &mut Vec<f32>) {
+    fn apply_gain_control(&mut self, input: &mut Vec<f64>) {
         self.gain_controller.process(input);
     }
 
-    fn apply_filters(&mut self, input: &Vec<f32>) {
+    fn apply_filters(&mut self, input: &Vec<f64>) {
         self.diff_buffer.copy_from_slice(input);
 
         self.amp_filter.process(input);
         self.amp_feedback.process(input);
 
+        let amp_filter = self.amp_filter.get_values();
         for i in 0..self.size {
-            self.diff_buffer[i] = self.amp_filter.values[i] - self.diff_buffer[i];
+            self.diff_buffer[i] = amp_filter[i] - self.diff_buffer[i];
         }
 
         self.diff_filter.process(&self.diff_buffer);
@@ -307,24 +257,28 @@ impl FrequencySensor {
         self.features.increment_index();
         {
             let amp = self.features.get_amplitudes_mut(0);
+            let amp_filter = self.amp_filter.get_values();
+            let amp_feedback = self.amp_feedback.get_values();
             for i in 0..self.size {
-                amp[i] = ao + ag * (self.amp_filter.values[i] + self.amp_feedback.values[i]);
+                amp[i] = ao + ag * (amp_filter[i] + amp_feedback[i]);
             }
         }
+        let diff_filter = self.diff_filter.get_values();
+        let diff_feedback = self.diff_feedback.get_values();
         for i in 0..self.size {
-            let diff = dg * (self.diff_filter.values[i] + self.diff_feedback.values[i]);
+            let diff = dg * (diff_filter[i] + diff_feedback[i]);
             self.features.diff[i] = diff;
             self.features.energy[i] = self.features.energy[i] + diff - self.params.drag;
         }
     }
 
     fn apply_sync(&mut self) {
-        use std::f32::consts::PI;
+        use std::f64::consts::PI;
         let twopi = 2. * PI;
 
         let energy = &mut self.features.energy;
-        let size_f = self.size as f32;
-        let mean = energy.iter().sum::<f32>() / size_f;
+        let size_f = self.size as f64;
+        let mean = energy.iter().sum::<f64>() / size_f;
 
         let sync = self.params.sync;
         for i in 0..self.size {
@@ -339,7 +293,7 @@ impl FrequencySensor {
             energy[i] += (sync / size_f) * FrequencySensor::signed_square_diff(mean, energy[i]);
         }
 
-        let mean = energy.iter().sum::<f32>() / size_f;
+        let mean = energy.iter().sum::<f64>() / size_f;
 
         if mean < -twopi {
             // wait until all elements go past the mark so theres no sign flips
@@ -368,19 +322,20 @@ impl FrequencySensor {
         }
 
         self.scale_filter.process(&self.scale_buffer);
+        let scale_filter = self.scale_filter.get_values_mut();
 
         for i in 0..self.size {
-            let mut vsh = self.scale_filter.values[i];
+            let mut vsh = scale_filter[i];
             if vsh < 0.001 {
                 vsh = 0.001;
             }
             let vs = 1. / vsh;
-            self.scale_filter.values[i] = vsh;
+            scale_filter[i] = vsh;
             self.features.scales[i] = vs;
         }
     }
 
-    fn signed_square_diff(a: f32, b: f32) -> f32 {
+    fn signed_square_diff(a: f64, b: f64) -> f64 {
         let diff = a - b;
         diff.signum() * diff * diff
     }
@@ -388,10 +343,10 @@ impl FrequencySensor {
 
 use std::fmt::{Display, Error, Formatter};
 
-struct VecF32<'a>(&'a Vec<f32>);
+struct VecFmt<'a>(&'a Vec<f64>);
 
-impl<'a> VecF32<'a> {
-    fn fmt_num(num: f32) -> String {
+impl<'a> VecFmt<'a> {
+    fn fmt_num(num: f64) -> String {
         format!(
             "{:>6}.{:06}",
             num as i32,
@@ -400,16 +355,16 @@ impl<'a> VecF32<'a> {
     }
 }
 
-impl<'a> Display for VecF32<'a> {
+impl<'a> Display for VecFmt<'a> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let mut comma_separated = String::new();
 
         for &num in &self.0[0..self.0.len() - 1] {
-            comma_separated.push_str(&VecF32::fmt_num(num));
+            comma_separated.push_str(&VecFmt::fmt_num(num));
             comma_separated.push_str(", ");
         }
         let num = self.0[self.0.len() - 1];
-        comma_separated.push_str(&VecF32::fmt_num(num));
+        comma_separated.push_str(&VecFmt::fmt_num(num));
 
         write!(f, "[ {} ]", comma_separated)
     }
