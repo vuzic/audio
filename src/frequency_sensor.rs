@@ -17,7 +17,6 @@ pub struct FrequencySensorParams {
     pub amp_offset: f64,
     pub sync: f64,
     pub drag: f64,
-
     pub amp_filter: FilterParams,
     pub amp_feedback: FilterParams,
     pub diff_filter: FilterParams,
@@ -277,9 +276,6 @@ impl FrequencySensor {
     }
 
     fn apply_sync(&mut self) {
-        use std::f64::consts::PI;
-        let twopi = 2. * PI;
-
         let energy = &mut self.features.energy;
         let size_f = self.size as f64;
         let mean = energy.iter().sum::<f64>() / size_f;
@@ -295,26 +291,6 @@ impl FrequencySensor {
             }
 
             energy[i] += (sync / size_f) * FrequencySensor::signed_square_diff(mean, energy[i]);
-        }
-
-        let mean = energy.iter().sum::<f64>() / size_f;
-
-        if mean < -twopi {
-            // wait until all elements go past the mark so theres no sign flips
-            if energy.iter().any(|&x| x > -twopi) {
-                return;
-            }
-            for i in 0..self.size {
-                energy[i] = twopi + energy[i];
-            }
-        }
-        if mean > twopi {
-            if energy.iter().any(|&x| x < twopi) {
-                return;
-            }
-            for i in 0..self.size {
-                energy[i] -= twopi;
-            }
         }
     }
 
