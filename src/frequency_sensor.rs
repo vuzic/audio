@@ -59,7 +59,7 @@ impl FrequencySensorParams {
 /// keep scale[i] * amplitude[n][i] mostly in the range of (-1, 1).
 /// `diff` is the lowpass-filtered magnitude of the difference of each new frame minus the prior.
 /// `energy` is the accumulation of diff over time.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Features {
     amplitudes: Vec<Vec<f64>>,
     scales: Vec<f64>,
@@ -74,7 +74,7 @@ pub struct Features {
 }
 
 impl Features {
-    fn new(size: usize, length: usize) -> Self {
+    pub fn new(size: usize, length: usize) -> Self {
         Self {
             size,
             length,
