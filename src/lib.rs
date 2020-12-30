@@ -7,7 +7,6 @@ pub mod errors;
 pub mod filter;
 pub mod frequency_sensor;
 pub mod gain_control;
-// pub mod params;
 pub mod sfft;
 
 mod buffer;

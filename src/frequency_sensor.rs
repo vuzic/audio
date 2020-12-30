@@ -27,9 +27,9 @@ pub struct FrequencySensorParams {
     pub gain_control: GainControllerParams,
 }
 
-impl FrequencySensorParams {
-    pub fn defaults() -> FrequencySensorParams {
-        FrequencySensorParams {
+impl Default for FrequencySensorParams {
+    fn default() -> Self {
+        Self {
             amp_filter: FilterParams::new(8., 1.),
             amp_feedback: FilterParams::new(200., -1.),
             diff_filter: FilterParams::new(16., 1.),

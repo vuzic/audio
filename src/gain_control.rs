@@ -14,8 +14,8 @@ pub struct Params {
     pub pre_gain: f64,
 }
 
-impl Params {
-    pub fn defaults() -> Self {
+impl Default for Params {
+    fn default() -> Self {
         Self {
             kd: 0.1,
             kp: 0.1,

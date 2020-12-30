@@ -83,7 +83,7 @@ mod tests {
             amp_feedback: FilterParams::new(100., -1.),
             diff_filter: FilterParams::new(1., 1.),
             diff_feedback: FilterParams::new(100., -0.5),
-            gain_control: GainControllerParams::defaults(),
+            gain_control: GainControllerParams::default(),
             amp_offset: 1.,
             preemphasis: 1.,
             sync: 0.001,
@@ -93,16 +93,16 @@ mod tests {
             pos_scale_filter: FilterParams::new(10., 1.),
             neg_scale_filter: FilterParams::new(10., 1.),
         };
-        let boost_params = GainControllerParams::defaults();
-        let mut a = Analyzer::new(128, 16, 2, boost_params, params);
+        let boost_params = GainControllerParams::default();
+        let mut a = Analyzer::new(128, 128, 16, 2, boost_params, params);
 
         use std::f64::consts::PI;
-        let input: Vec<f64> = (0..128)
+        let mut input: Vec<f64> = (0..128)
             .map(|x| (x as f64 * 2. * PI / 128.).cos())
             .collect();
 
         for _ in 0..128 {
-            a.process(&input);
+            a.process(&mut input);
         }
 
         println!("{:?}", a.get_features());
