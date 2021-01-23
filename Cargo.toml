@@ -5,6 +5,7 @@ authors = ["Steven Cohen <peragwin@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0.38"
 rustfft = "4.0.0"
-cpal = { version="0.13.1", features=["jack"] }
-serde = { version="1.0.117", features=["derive"] }
+cpal = { version = "0.13.1", features = ["jack"] }
+serde = { version = "1.0.117", features = ["derive"] }

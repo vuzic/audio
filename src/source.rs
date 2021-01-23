@@ -1,4 +1,4 @@
-use super::errors::DeviceError;
+use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 pub use cpal::Stream;
@@ -9,7 +9,7 @@ pub struct Source {
 }
 
 impl<'a> Source {
-    pub fn new(select_device: Option<&str>) -> Result<Self, DeviceError> {
+    pub fn new(select_device: Option<&str>) -> Result<Self> {
         let host = cpal::default_host();
 
         let device = if let Some(device_name) = select_device {
@@ -20,27 +20,22 @@ impl<'a> Source {
                 .flatten()
                 .filter(|d| d.name().map(|name| name == device_name).unwrap_or(false))
                 .next()
-                .ok_or_else(|| {
-                    DeviceError(
-                        format!("no input device with name '{}' was found", device_name).to_owned(),
-                        None,
-                    )
-                })
+                .ok_or_else(|| anyhow!("no input device with name '{}' was found", device_name))
         } else {
             host.default_input_device()
-                .ok_or_else(|| DeviceError("could not get default input".to_owned(), None))
+                .ok_or_else(|| anyhow!("could not get default input"))
         }?;
 
         Ok(Self { device })
     }
 
-    pub fn get_stream(
+    pub fn get_stream<T: 'static + cpal::Sample>(
         &self,
         channels: u16,
         sample_rate: u32,
         buffer_size: u32,
-        handle_stream: Box<dyn Fn(&[f32]) -> () + Send>,
-    ) -> Result<Stream, DeviceError> {
+        handle_stream: Box<dyn Fn(&[T]) -> () + Send>,
+    ) -> Result<Stream> {
         let config = cpal::StreamConfig {
             buffer_size: cpal::BufferSize::Fixed(buffer_size),
             channels,
@@ -55,18 +50,25 @@ impl<'a> Source {
             .device
             .build_input_stream(
                 &config,
-                move |data: &[f32], _: &_| {
+                move |data: &[T], _: &_| {
                     handle_stream(data);
                 },
                 move |err| {
                     eprintln!("Audio Stream Error: {}", err);
                 },
             )
-            .map_err(|e| DeviceError("could not build stream".to_owned(), Some(Box::new(e))))?;
+            .map_err(|e| {
+                if let cpal::BuildStreamError::StreamConfigNotSupported = e {
+                    let configs: Vec<cpal::SupportedStreamConfigRange> =
+                        self.device.supported_input_configs().unwrap().collect();
+                    println!("Supported Configs: {:#?}", &configs);
+                }
+                anyhow!("could not build stream: {}", e)
+            })?;
 
         stream
             .play()
-            .map_err(|e| DeviceError("failed to start stream".to_owned(), Some(Box::new(e))))?;
+            .map_err(|e| anyhow!("failed to start stream: {}", e))?;
 
         Ok(stream)
     }
@@ -85,24 +87,20 @@ impl<'a> Source {
             .collect()
     }
 
-    pub fn print_devices(show_supported_configs: bool) -> Result<(), DeviceError> {
+    pub fn print_devices(show_supported_configs: bool) -> Result<()> {
         let hosts = Self::list_devices();
         for (host, devices) in hosts {
             for dev in devices {
                 println!(
                     "({:?}) Audio Device:\t{:#?}",
                     host,
-                    dev.name().map_err(|e| DeviceError(
-                        "error getting name".to_owned(),
-                        Some(Box::new(e))
-                    ))?,
+                    dev.name()
+                        .map_err(|e| anyhow!("error getting name: {}", e))?,
                 );
                 if show_supported_configs {
                     let configs = dev
                         .supported_input_configs()
-                        .map_err(|e| {
-                            DeviceError("error getting input configs".to_owned(), Some(Box::new(e)))
-                        })?
+                        .map_err(|e| anyhow!("error getting input configs: {}", e))?
                         .collect::<Vec<cpal::SupportedStreamConfigRange>>();
                     println!("\tSupported Configs:\t{:#?}", &configs);
                 }

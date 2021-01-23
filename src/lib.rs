@@ -1,3 +1,4 @@
+extern crate anyhow;
 extern crate cpal;
 extern crate serde;
 
