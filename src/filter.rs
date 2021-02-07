@@ -66,7 +66,7 @@ impl<'de> Deserialize<'de> for FilterParams {
         struct Params {
             tau: f64,
             gain: f64,
-        };
+        }
         let p = Params::deserialize(deserializer)?;
         Ok(Self::new(p.tau, p.gain))
     }
@@ -76,14 +76,12 @@ impl<'de> Deserialize<'de> for FilterParams {
 /// in parallel.
 pub struct Filter {
     values: Vec<f64>,
-    params: FilterParams,
 }
 
 impl Filter {
-    pub fn new(size: usize, params: FilterParams) -> Filter {
+    pub fn new(size: usize) -> Filter {
         Filter {
             values: vec![0f64; size],
-            params,
         }
     }
 
@@ -106,9 +104,9 @@ impl Filter {
     //     }
     // }
 
-    pub fn process(&mut self, input: &Vec<f64>) {
+    pub fn process(&mut self, input: &Vec<f64>, params: &FilterParams) {
         for i in 0..input.len() {
-            self.values[i] = self.params.a * input[i] + self.params.b * self.values[i];
+            self.values[i] = params.a * input[i] + params.b * self.values[i];
         }
     }
 
@@ -121,25 +119,21 @@ impl Filter {
 /// less than the current value.
 pub struct BiasedFilter {
     values: Vec<f64>,
-    pos_params: FilterParams,
-    neg_params: FilterParams,
 }
 
 impl BiasedFilter {
-    pub fn new(size: usize, pos_params: FilterParams, neg_params: FilterParams) -> BiasedFilter {
+    pub fn new(size: usize) -> BiasedFilter {
         BiasedFilter {
             values: vec![0f64; size],
-            pos_params,
-            neg_params,
         }
     }
 
-    pub fn process(&mut self, input: &Vec<f64>) {
+    pub fn process(&mut self, input: &Vec<f64>, params: (&FilterParams, &FilterParams)) {
         for i in 0..input.len() {
             let params = if input[i] < self.values[i] {
-                &self.pos_params
+                params.0
             } else {
-                &self.neg_params
+                params.1
             };
             self.values[i] = params.a * input[i] + params.b * self.values[i];
         }

@@ -14,13 +14,14 @@ impl<'a> Source {
 
         let device = if let Some(device_name) = select_device {
             let devices = Self::list_devices();
+            let device_names: Vec<String> = Self::list_devices().into_iter().flat_map(|d| d.1.map(|d| d.name().unwrap())).collect();
             devices
                 .into_iter()
                 .map(|x| x.1)
                 .flatten()
                 .filter(|d| d.name().map(|name| name == device_name).unwrap_or(false))
                 .next()
-                .ok_or_else(|| anyhow!("no input device with name '{}' was found", device_name))
+                .ok_or_else(|| anyhow!("no input device with name '{}' was found. devices: {:?}", device_name, device_names))
         } else {
             host.default_input_device()
                 .ok_or_else(|| anyhow!("could not get default input"))

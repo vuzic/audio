@@ -1,7 +1,11 @@
+use serde::{Deserialize, Serialize};
+
 use super::bucketer::Bucketer;
-use super::frequency_sensor::{Features, FrequencySensor, FrequencySensorParams};
+use super::frequency_sensor::{
+    Features, FrequencySensor, FrequencySensorParams, State as FrequencySensorState,
+};
 use super::sfft::SlidingFFT;
-use crate::gain_control::{BoostController, Params as GainControllerParams};
+use crate::gain_control::{BoostController, BoostState, Params as GainControllerParams};
 
 pub struct Analyzer {
     boost: BoostController,
@@ -13,19 +17,33 @@ pub struct Analyzer {
     sample_count: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+pub struct AnalyzerParams {
+    pub boost: GainControllerParams,
+    pub fs: FrequencySensorParams,
+}
+
+#[derive(Debug, Serialize, Default, Clone)]
+pub struct AnalyzerState {
+    pub boost: BoostState,
+    pub fs: FrequencySensorState,
+}
+
+impl Default for AnalyzerParams {
+    fn default() -> Self {
+        Self {
+            boost: Default::default(),
+            fs: Default::default(),
+        }
+    }
+}
+
 impl Analyzer {
-    pub fn new(
-        fft_size: usize,
-        block_size: usize,
-        size: usize,
-        length: usize,
-        boost_params: GainControllerParams,
-        fs_params: FrequencySensorParams,
-    ) -> Analyzer {
-        let boost = BoostController::new(boost_params);
+    pub fn new(fft_size: usize, block_size: usize, size: usize, length: usize) -> Analyzer {
+        let boost = BoostController::new();
         let sfft = SlidingFFT::new(fft_size);
         let bucketer = Bucketer::new(fft_size / 2, size, 32., 22000.);
-        let frequency_sensor = FrequencySensor::new(size, length, fs_params);
+        let frequency_sensor = FrequencySensor::new(size, length);
         Analyzer {
             boost,
             sfft,
@@ -36,15 +54,15 @@ impl Analyzer {
         }
     }
 
-    pub fn process(&mut self, frame: &mut Vec<f64>) -> Option<Features> {
+    pub fn process(&mut self, frame: &mut Vec<f64>, params: &AnalyzerParams) -> Option<Features> {
         self.sample_count += frame.len();
-        self.boost.process(frame);
+        self.boost.process(frame, &params.boost);
         self.sfft.push_input(frame);
         if self.sample_count >= self.block_size {
             self.sample_count = 0;
             let spectrum = self.sfft.process();
             let bins = self.bucketer.bucket(spectrum);
-            self.frequency_sensor.process(bins);
+            self.frequency_sensor.process(bins, &params.fs);
             return Some(self.frequency_sensor.get_features().to_owned());
         }
         None
@@ -52,10 +70,6 @@ impl Analyzer {
 
     pub fn get_features(&self) -> &Features {
         &self.frequency_sensor.get_features()
-    }
-
-    pub fn set_params(&mut self, fp: FrequencySensorParams) {
-        self.frequency_sensor.set_params(fp);
     }
 
     pub fn write_debug<W>(&self, w: &mut W) -> core::fmt::Result
@@ -67,34 +81,22 @@ impl Analyzer {
         self.frequency_sensor.write_debug(w)?;
         writeln!(w, "}}")
     }
+
+    pub fn get_state(&self) -> AnalyzerState {
+        AnalyzerState {
+            boost: self.boost.get_state(),
+            fs: self.frequency_sensor.get_state(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::Analyzer;
-    use super::FrequencySensorParams;
-    use crate::filter::FilterParams;
-    use crate::gain_control::Params as GainControllerParams;
 
     #[test]
     fn it_works() {
-        let params = FrequencySensorParams {
-            amp_filter: FilterParams::new(1., 1.),
-            amp_feedback: FilterParams::new(100., -1.),
-            diff_filter: FilterParams::new(1., 1.),
-            diff_feedback: FilterParams::new(100., -0.5),
-            gain_control: GainControllerParams::default(),
-            amp_offset: 1.,
-            preemphasis: 1.,
-            sync: 0.001,
-            amp_scale: 1.,
-            diff_gain: 1.,
-            drag: 0.001,
-            pos_scale_filter: FilterParams::new(10., 1.),
-            neg_scale_filter: FilterParams::new(10., 1.),
-        };
-        let boost_params = GainControllerParams::default();
-        let mut a = Analyzer::new(128, 128, 16, 2, boost_params, params);
+        let mut a = Analyzer::new(128, 128, 16, 2);
 
         use std::f64::consts::PI;
         let mut input: Vec<f64> = (0..128)
@@ -102,7 +104,7 @@ mod tests {
             .collect();
 
         for _ in 0..128 {
-            a.process(&mut input);
+            a.process(&mut input, &Default::default());
         }
 
         println!("{:?}", a.get_features());

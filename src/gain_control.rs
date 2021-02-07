@@ -29,46 +29,48 @@ impl Default for Params {
 /// GainController is a PID controller which adjusts gain with a target value of 1.
 pub struct GainController {
     filter: Filter,
-    // neg_filter: Filter,
     values: Vec<f64>,
     err: Vec<f64>,
-    params: Params,
 }
 
 impl GainController {
-    pub fn new(size: usize, params: Params) -> GainController {
+    pub fn new(size: usize) -> GainController {
         GainController {
-            filter: Filter::new(size, params.filter_params),
+            filter: Filter::new(size),
             values: vec![1f64; size],
             err: vec![0f64; size],
-            params,
         }
     }
 
+    /*
     fn log_error(x: f64) -> f64 {
         let x = 0.000000001f64 + x;
         let l = x.abs().log2();
-        -x.signum() * l //* l * l.signum()
+        -x.signum() * l // * l * l.signum()
+    }
+    */
+
+    fn error(x: f64) -> f64 {
+        let x = x.max(0.0000001);
+        (if x < 1. { 1. / x - 1. } else { 1. - x }).clamp(-32., 32.)
     }
 
-    pub fn process(&mut self, input: &mut Vec<f64>) {
+    pub fn process(&mut self, input: &mut Vec<f64>, params: &Params) {
         for i in 0..input.len() {
-            input[i] *= self.values[i] * self.params.pre_gain;
+            input[i] *= self.values[i] * params.pre_gain;
         }
 
-        self.filter.process(input);
+        self.filter.process(input, &params.filter_params);
         let filter_values = self.filter.get_values();
 
         for i in 0..input.len() {
-            let e = GainController::log_error(filter_values[i]);
-            // integrate error
+            let e = GainController::error(filter_values[i]);
+            // "integrate" error
             self.err[i] = 0.99 * self.err[i] + 0.01 * e;
 
-            let u = self.params.kp * e
-                + self.params.ki * self.err[i]
-                + self.params.kd * (self.err[i] - e);
+            let u = params.kp * e + params.ki * self.err[i] + params.kd * (self.err[i] - e);
             self.values[i] = match self.values[i] + u {
-                x if x > 1e8 => 1e8,
+                x if x > 1e6 => 1e6,
                 x if x < 1e-6 => 1e-6,
                 x => x,
             };
@@ -88,7 +90,7 @@ impl GainController {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Debug, Default, Clone)]
 pub struct State {
     pub gain: Vec<f64>,
     pub filter_values: Vec<f64>,
@@ -111,17 +113,17 @@ pub struct BoostController {
 }
 
 impl BoostController {
-    pub fn new(params: Params) -> Self {
+    pub fn new() -> Self {
         Self {
-            gc: GainController::new(1, params),
+            gc: GainController::new(1),
         }
     }
 
-    pub fn process(&mut self, frame: &mut Vec<f64>) {
+    pub fn process(&mut self, frame: &mut Vec<f64>, params: &Params) {
         let s: f64 = frame.iter().map(|x: &f64| x * x).sum();
         let rms = (s / frame.len() as f64).sqrt();
         let mut p = vec![rms];
-        self.gc.process(&mut p);
+        self.gc.process(&mut p, params);
         let scale = self.gc.get_values()[0];
         for i in 0..frame.len() {
             frame[i] *= scale;
@@ -138,6 +140,7 @@ impl BoostController {
     }
 }
 
+#[derive(Debug, Serialize, Default, Clone)]
 pub struct BoostState {
     pub gain: f64,
     pub filter_value: f64,
